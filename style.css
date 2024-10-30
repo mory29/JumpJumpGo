@@ -1,0 +1,21 @@
+/* Reset the default margin and padding for a cleaner look */ 
+* { 
+	margin: 0;
+	padding: 0; 
+	box-sizing: border-box; 
+} 
+/* Center the canvas in the middle of the screen */ 
+body { 
+	display: flex; 
+	justify-content: center; 
+	align-items: center; 
+	height: 100vh; 
+	background-color: #88CEEB; /* Light sky-blue background for now */ 
+} 
+
+/* Style the canvas */ 
+#gameCanvas { 
+	border: 2px solid #333; /* Dark border for visibility */ 
+	width: 800px; 
+	height: 400px;
+ }
