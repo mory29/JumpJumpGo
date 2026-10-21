@@ -1,0 +1,73 @@
+
+
+        /* In the <style> tag */
+
+body { 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    height: 100vh; 
+    background-color: #88CEEB; /* Light sky-blue background for now */ 
+
+} 
+
+/* Style the canvas */ 
+#gameCanvas { 
+    border: 2px solid #333; /* Dark border for visibility */ 
+    width: 1000px; 
+    height: 500px;
+ }
+#homeScreen {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    background-color: #000; /* Background color */
+}
+
+#homeCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+#buttonContainer {
+    position: absolute;
+    bottom: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 20px;
+}
+
+#buttonContainer button {
+    padding: 15px 30px;
+    font-size: 18px;
+    cursor: pointer;
+    border: none;
+    border-radius: 5px;
+}
+
+#playButton {
+    background-color: #28a745;
+    color: #fff;
+}
+
+#exitButton {
+    background-color: #dc3545;
+    color: #fff;
+}
+
+#gameTitle {
+    position: absolute;
+    top: 20%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 64px;
+    color: #ffffff;
+    text-align: center;
+    opacity: 0; /* Start invisible for animation */
+}
+
+
+        /* We'll add CSS styles here */
+    
