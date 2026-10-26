@@ -193,6 +193,16 @@ const PRACTICE_COURSE = [
     { x: 60,  heightAboveGround: 720, collectible: false },
     { x: 220, heightAboveGround: 800, collectible: true }
 ];
+// Extend the course to 60 platforms with a repeatable layout.
+const platformXPattern = [60, 220, 380, 540, 700, 540, 380, 220];
+
+for (let i = PRACTICE_COURSE.length; i < 60; i++) {
+    PRACTICE_COURSE.push({
+        x: platformXPattern[i % platformXPattern.length],
+        heightAboveGround: (i + 1) * 80,
+        collectible: i % 2 === 1
+    });
+}
 
 const platforms = [];
 const trees = [];
@@ -264,20 +274,37 @@ function drawGround() {
     drawEarthTexture();
 }
 
-function drawEarthTexture() {
-    const textureDensity = 0.1; // Adjust for more or fewer patches
-    const patchCount = Math.floor(canvas.width * textureDensity);
+const groundPatches = [];
 
-    ctx.fillStyle = '#654321'; // Darker brown for patches
+function initializeGroundTexture() {
+    groundPatches.length = 0;
+    const patchCount = Math.floor(canvas.width * 0.1);
 
     for (let i = 0; i < patchCount; i++) {
-        const patchWidth = Math.random() * 30 + 20; // Random width between 20 and 50
-        const patchHeight = Math.random() * 10 + 5; // Random height between 5 and 15
-        const x = Math.random() * canvas.width;
-        const y = canvas.height - groundHeight + Math.random() * (groundHeight - patchHeight) - cameraOffset;
+        const width = Math.random() * 30 + 20;
+        const height = Math.random() * 10 + 5;
 
-        ctx.fillRect(x, y, patchWidth, patchHeight);
+        groundPatches.push({
+            x: Math.random() * (canvas.width - width),
+            y: canvas.height - groundHeight +
+                Math.random() * (groundHeight - height),
+            width: width,
+            height: height
+        });
     }
+}
+
+function drawEarthTexture() {
+    ctx.fillStyle = '#654321';
+
+    groundPatches.forEach(patch => {
+        ctx.fillRect(
+            patch.x,
+            patch.y - cameraOffset,
+            patch.width,
+            patch.height
+        );
+    });
 }
 
 
@@ -316,10 +343,30 @@ function drawTrees() {
 
 // Draw platforms cleared counter
 function drawPlatformCounter() {
+    let highestPlatformHeight = 0;
+
+    platformsLanded.forEach(index => {
+        highestPlatformHeight = Math.max(
+            highestPlatformHeight,
+            PRACTICE_COURSE[index].heightAboveGround
+        );
+    });
+
+    const summitHeight =
+        PRACTICE_COURSE[PRACTICE_COURSE.length - 1].heightAboveGround;
+
+    const progress = Math.floor(
+        (highestPlatformHeight / summitHeight) * 100
+    );
+
     ctx.fillStyle = '#FFFFFF';
     ctx.font = '20px Arial';
     ctx.textAlign = 'right';
-    ctx.fillText(`Platforms Cleared: ${platformsCleared} / ${platforms.length}`, canvas.width - 10, 30);
+    ctx.fillText(
+        `Spaceship progress: ${progress}%`,
+        canvas.width - 10,
+        30
+    );
 }
 
 
@@ -504,16 +551,12 @@ function drawPlayer() {
         drawJetWings();
     }
 
-    // Game Over if player falls below canvas
-    if (player.y + player.height - cameraOffset > canvas.height) {
-        gameOver = true;
-        showGameOverDialog("Game Over! You fell off the screen.");
-    }
-    // Game Over if player falls below canvas
-    // if (player.y - cameraOffset > canvas.height) {
+    // // Game Over if player falls below canvas
+    // if (player.y + player.height - cameraOffset > canvas.height) {
     //     gameOver = true;
     //     showGameOverDialog("Game Over! You fell off the screen.");
     // }
+    
 
     // lets make the player start on a actual ground and not on a platform.
     // add ascending wind that will boost the robot up in certain area of the ascens
@@ -600,13 +643,44 @@ function updatePlayer() {
     if (player.x < 0) player.x = 0;
     else if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
 
-    if (player.y - cameraOffset < canvas.height / 2) {
-        cameraOffset = player.y - canvas.height / 2;
+    // if (player.y - cameraOffset < canvas.height / 2) {
+    //     cameraOffset = player.y - canvas.height / 2;
+    // }
+}
+
+function checkFallOutOfView() {
+    if (gameOver) return;
+
+    const headAboveBody = 30;
+    const playerTopOnScreen =
+        player.y - headAboveBody - cameraOffset;
+
+    if (playerTopOnScreen > canvas.height) {
+        gameOver = true;
+        showGameOverDialog("Game Over! You fell off the screen.");
+    }
+}
+
+function updateCamera() {
+    const targetOffset = player.y - canvas.height / 2;
+    const cameraFollowSpeed = 0.12;
+
+    if (targetOffset < cameraOffset) {
+        cameraOffset +=
+            (targetOffset - cameraOffset) * cameraFollowSpeed;
     }
 }
 
 // Handle key presses for movement
 function handleKeyDown(e) {
+    const gameKeys = ['ArrowRight', 'ArrowLeft', 'ArrowUp'];
+
+    if (gameKeys.includes(e.key)) {
+        e.preventDefault();
+    }
+
+    if (gameOver) return;
+
     if (e.key === 'ArrowRight') {
         player.dx = player.speed;
         player.jumpDirection = 1;
@@ -614,6 +688,8 @@ function handleKeyDown(e) {
         player.dx = -player.speed;
         player.jumpDirection = -1;
     } else if (e.key === 'ArrowUp') {
+        if (e.repeat) return;
+
         if (player.jumpCount < player.maxJumps) {
             player.dy = player.jumpPower;
             player.isJumping = true;
@@ -669,6 +745,42 @@ function drawCollectibles() {
     });
 }
 
+function drawSpaceship() {
+    const finishPlatform = platforms[platforms.length - 1];
+    if (!finishPlatform) return;
+
+    const shipX = finishPlatform.x + finishPlatform.width / 2;
+    const shipY = finishPlatform.y - cameraOffset - 100;
+
+    ctx.save();
+    ctx.translate(shipX, shipY);
+
+    // Glass cockpit
+    ctx.fillStyle = '#7DE3FF';
+    ctx.beginPath();
+    ctx.ellipse(0, -15, 30, 28, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ship body
+    ctx.fillStyle = '#B8C5D6';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 65, 20, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Lower hull
+    ctx.fillStyle = '#526580';
+    ctx.fillRect(-35, 10, 70, 12);
+
+    // Three yellow lights
+    ctx.fillStyle = '#FFE066';
+    [-35, 0, 35].forEach(lightX => {
+        ctx.beginPath();
+        ctx.arc(lightX, 0, 5, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    ctx.restore();
+}
 
 function drawPlatforms() {
     platforms.forEach(platform => {
@@ -694,6 +806,16 @@ function drawPlatforms() {
             ctx.fillStyle = platform.id === PRACTICE_COURSE.length - 1 ? '#2E8B57' : '#8B4513'; // Green marks the finish
         }
         ctx.fillRect(platform.x, platform.y - cameraOffset, platform.width, platform.height);
+        if (platform.id === PRACTICE_COURSE.length - 1) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 20px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(
+                'SPACESHIP',
+                platform.x + platform.width / 2,
+                platform.y - cameraOffset - 35
+        );
+}
         
         ctx.restore();
     });
@@ -813,6 +935,11 @@ function checkPlatformCollision() {
     player.standingPlatform = null;
     let onPlatform = false;
     platforms.forEach((platform, index) => {
+
+        // Skip platforms below the visible play area.
+        if (platform.y - cameraOffset >= canvas.height) {
+            return;
+        }
         if (
             player.x < platform.x + platform.width &&
             player.x + player.width > platform.x &&
@@ -855,18 +982,22 @@ function checkPlatformCollision() {
         }
     });
 
+   
+   
+    
     // Ground collision
-    if (
-        player.previousY + player.height <= canvas.height - groundHeight &&
-        player.y + player.height >= canvas.height - groundHeight &&
-        player.dy >= 0
-    ) {
-        player.y = canvas.height - groundHeight - player.height;
-        player.dy = 0;
-        player.isJumping = false;
-        player.jumpCount = 0; // Reset double jump
-        onPlatform = true;
-    }
+        if (
+            canvas.height - groundHeight - cameraOffset < canvas.height &&
+            player.previousY + player.height <= canvas.height - groundHeight &&
+            player.y + player.height >= canvas.height - groundHeight &&
+            player.dy >= 0
+        ) {
+            player.y = canvas.height - groundHeight - player.height;
+            player.dy = 0;
+            player.isJumping = false;
+            player.jumpCount = 0; // Reset double jump
+            onPlatform = true;
+        }
 
     // // If the player is not on any platform or ground, they are in the air
     // if (!onPlatform) {
@@ -902,7 +1033,7 @@ function updateBackgroundStage() {
 
     if (platformsLanded.has(PRACTICE_COURSE.length - 1)) {
         gameOver = true;
-        showGameOverDialog("Course complete! You reached the top. Try again to practice!");
+        showGameOverDialog("You reached the spaceship! Ready for takeoff!");
     }
 }
 
@@ -988,30 +1119,37 @@ function showGameOverDialog(message) {
 // Main game loop
 function gameLoop() {
     if (gameOver) return;
+
+    // Update game state before drawing.
+    updatePlayer();
+    updatePlatforms();
+    updateCollectibles();
+    checkPlatformCollision();
+    checkCollectiblesCollision();
+    updateCamera();
+    checkFallOutOfView();
+
+    if (!gameOver) {
+        updateBackgroundStage();
+    }
+
+    // Draw using the same updated camera position.
     clearCanvas();
     drawBackground();
     drawTrees();
     drawGround();
-
-    updatePlayer();
-    
-    updatePlatforms();
-    updateCollectibles();
-
     drawPlatforms();
+    drawSpaceship();
     drawObstacles();
     drawCollectibles();
-    checkPlatformCollision();
-    checkCollectiblesCollision();
     drawPlayer();
     drawPlatformCounter();
     drawScore();
     drawClouds();
 
-    // Check if a stage transition is needed
-    updateBackgroundStage();
-
-    requestAnimationFrame(gameLoop);
+    if (!gameOver) {
+        requestAnimationFrame(gameLoop);
+    }
 }
 
 
@@ -1040,6 +1178,7 @@ document.addEventListener('keydown', (event) => {
 document.addEventListener('keydown', handleKeyDown);
 document.addEventListener('keyup', handleKeyUp);
 
+initializeGroundTexture(); // Create ground details once.
 initializeTrees(); // Initialize scenery once.
 resetGame(); // Load the fixed course before the first frame.
 gameLoop();
