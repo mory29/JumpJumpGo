@@ -222,7 +222,7 @@ const player = {
     dx: 0,
     dy: 0,
     gravity: 0.4,
-    jumpPower: -15,
+    jumpPower: -12,
     isJumping: false,
     jumpDirection: 0,
     score: 0,
@@ -251,6 +251,7 @@ function triggerBackgroundTransition() {
 // Platform types
 const PLATFORM_TYPES = {
     STATIC: 'static',
+    BOOST: 'boost',
     MOVING_HORIZONTAL: 'moving_horizontal',
     //MOVING_VERTICAL: 'moving_vertical',
     FALLING: 'falling',
@@ -372,35 +373,89 @@ function drawPlatformCounter() {
 
 // Draw background with fading effect
 function drawBackground() {
-    // Only apply globalAlpha if we're transitioning
-    ctx.globalAlpha = transitioning ? fadeOpacity : 1.0;
+    const altitude = Math.max(0, -cameraOffset);
 
-    if (backgroundStage === 0) {
-        // Daytime background
-        ctx.fillStyle = '#87CEEB';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#228B22';
-        ctx.fillRect(0, canvas.height - 50 - cameraOffset, canvas.width, 50);
-        drawSun();
-        drawClouds();
-    } else if (backgroundStage === 1) {
-        // Nighttime background
-        ctx.fillStyle = '#2B2B52';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        drawStars(4);
-        drawMoon();
-    } else if (backgroundStage === 2) {
-        // Space background
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        drawStars(2);
-        drawPlanets();
+    // Each height marks an environment along the climb.
+    const stages = [
+        { height: 0,    color: [135, 206, 235] }, // Day
+        { height: 1000, color: [235, 139, 100] }, // Sunset
+        { height: 2000, color: [35, 35, 75] },    // Night
+        { height: 3000, color: [12, 15, 40] },    // Space
+        { height: 4000, color: [3, 4, 14] }       // Deep space
+    ];
+
+    // Find the two colors surrounding our current altitude.
+    let stageIndex = 0;
+
+    while (
+        stageIndex < stages.length - 2 &&
+        altitude >= stages[stageIndex + 1].height
+    ) {
+        stageIndex++;
     }
 
-    // Only reset globalAlpha if we're not transitioning
-    if (!transitioning) {
-        ctx.globalAlpha = 1.0;
-    }
+    const from = stages[stageIndex];
+    const to = stages[stageIndex + 1];
+
+    const progress = Math.min(
+        1,
+        Math.max(0,
+            (altitude - from.height) / (to.height - from.height)
+        )
+    );
+
+    const color = from.color.map((channel, index) => {
+        return Math.round(
+            channel + (to.color[index] - channel) * progress
+        );
+    });
+
+    ctx.save();
+
+    // Always paint an opaque sky behind the game.
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = `rgb(${color.join(',')})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Sun and clouds gradually disappear.
+    const daylight = Math.max(0, 1 - altitude / 1800);
+
+    ctx.globalAlpha = daylight;
+    drawSun();
+    drawClouds();
+
+    // Stars gradually appear approaching nighttime.
+    const starlight = Math.min(
+        1,
+        Math.max(0, (altitude - 1000) / 1000)
+    );
+
+    ctx.globalAlpha = starlight;
+    drawStars(3);
+
+    // The moon appears at night, then fades toward space.
+    const moonVisibility = starlight * Math.max(
+        0,
+        Math.min(1, (3000 - altitude) / 1000)
+    );
+
+    ctx.globalAlpha = moonVisibility;
+    drawMoon();
+
+    // Planets appear in space and fade into deep space.
+    const planetVisibility = Math.max(
+        0,
+        Math.min(
+            1,
+            (altitude - 2200) / 800,
+            (4400 - altitude) / 800
+        )
+    );
+
+    ctx.globalAlpha = planetVisibility;
+    drawPlanets();
+
+    ctx.restore();
 }
 
 function drawScore() {
@@ -471,11 +526,25 @@ function initializeStars() {
     }
 }
 // Draw stars at fixed positions
-function drawStars(size) { 
+function drawStars(size) {
+    const time = performance.now() / 1000;
+
+    ctx.save();
+    const backgroundOpacity = ctx.globalAlpha;
     ctx.fillStyle = '#FFFFFF';
-    starPositions.forEach(star => {
+
+    starPositions.forEach((star, index) => {
+        const speed = 1.6 + (index % 5) * 0.6;
+        const phase = index * 2.4;
+
+        const brightness =
+            0.65 + Math.sin(time * speed + phase) * 0.35;
+
+        ctx.globalAlpha = backgroundOpacity * brightness;
         ctx.fillRect(star.x, star.y, size, size);
     });
+
+    ctx.restore();
 }
 function drawMoon() { 
     const moonX = canvas.width - 100; // Fixed horizontal position on the right side
@@ -512,57 +581,62 @@ function drawPlanets() {
 //function drawPlanet(x, y, radius, color) { /*...*/ }
 
 function drawPlayer() {
-    const bodyColor = '#4682B4';
-    const shadowColor = '#2B5D79';
+    const time = performance.now() / 1000;
+    const airborne = player.isJumping || Math.abs(player.dy) > 0.5;
+    const running = Math.abs(player.dx) > 0 && !airborne;
 
-    // Main body with 3D effect
-    ctx.fillStyle = bodyColor;
-    ctx.fillRect(player.x, player.y - cameraOffset, player.width, player.height);
+    const stride = running ? Math.sin(time * 14) : 0;
+    const direction = Math.sign(player.dx);
+    const lean = running ? direction * 0.07 : 0;
 
-    // Head with 3D look
+    ctx.save();
+
+    // Draw relative to the center of the robot's body.
+    ctx.translate(
+        player.x + player.width / 2,
+        player.y - cameraOffset + player.height / 2
+    );
+    ctx.rotate(lean);
+
+    // Legs swing in opposite directions.
+    const legSwing = stride * 7;
+
+    ctx.fillStyle = '#2B5D79';
+    ctx.fillRect(-15, 18 + legSwing, 10, 12);
+    ctx.fillRect(5, 18 - legSwing, 10, 12);
+
+    // Arms swing opposite to the legs.
+    const armSwing = airborne ? -10 : stride * 8;
+
+    ctx.fillStyle = '#2B5D79';
+    ctx.fillRect(-29, -5 - armSwing, 9, 18);
+    ctx.fillRect(20, -5 + armSwing, 9, 18);
+
+    // Body
+    ctx.fillStyle = '#4682B4';
+    ctx.fillRect(-20, -20, 40, 40);
+
+    // Chest panel
+    ctx.fillStyle = '#7DCBE8';
+    ctx.fillRect(-11, -10, 22, 14);
+
+    // Head
     ctx.fillStyle = '#5A9FD6';
     ctx.beginPath();
-    ctx.arc(player.x + player.width / 2, player.y - 15 - cameraOffset, 15, 0, Math.PI * 2);
+    ctx.arc(0, -35, 15, 0, Math.PI * 2);
     ctx.fill();
 
     // Eyes
     ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(player.x + 10, player.y - 5 - cameraOffset, 5, 5);
-    ctx.fillRect(player.x + 25, player.y - 5 - cameraOffset, 5, 5);
+    ctx.fillRect(-9, -39, 6, 6);
+    ctx.fillRect(3, -39, 6, 6);
 
-    // Jumping arm movement
-    ctx.fillStyle = shadowColor;
-    if (player.isJumping) {
-        ctx.fillRect(player.x - 10, player.y + 15 - cameraOffset - jumpAnimationFrame * 0.5, 10, 5); // Left arm
-        ctx.fillRect(player.x + player.width, player.y + 15 - cameraOffset - jumpAnimationFrame * 0.5, 10, 5); // Right arm
-    } else {
-        ctx.fillRect(player.x - 10, player.y + 15 - cameraOffset, 10, 5); // Left arm
-        ctx.fillRect(player.x + player.width, player.y + 15 - cameraOffset, 10, 5); // Right arm
-    }
+    ctx.restore();
 
-    // Jumping leg movement
-    ctx.fillStyle = '#2B5D79';
-    ctx.fillRect(player.x + 5, player.y + player.height - cameraOffset + (player.isJumping ? -jumpAnimationFrame * 0.2 : 0), 10, 10); // Left leg
-    ctx.fillRect(player.x + 25, player.y + player.height - cameraOffset + (player.isJumping ? -jumpAnimationFrame * 0.2 : 0), 10, 10); // Right leg
-
-
-    // Draw jet wings if jumping
+    // Jet wings use the original world coordinates.
     if (player.isJumping) {
         drawJetWings();
     }
-
-    // // Game Over if player falls below canvas
-    // if (player.y + player.height - cameraOffset > canvas.height) {
-    //     gameOver = true;
-    //     showGameOverDialog("Game Over! You fell off the screen.");
-    // }
-    
-
-    // lets make the player start on a actual ground and not on a platform.
-    // add ascending wind that will boost the robot up in certain area of the ascens
-
-
-
 }
 
 function drawJetWings() {
@@ -782,15 +856,65 @@ function drawSpaceship() {
     ctx.restore();
 }
 
+function drawBoostPlatform(platform) {
+    const x = platform.x;
+    const y = platform.y - cameraOffset;
+    const width = platform.width;
+
+    ctx.save();
+
+    // Dark base beneath the springs.
+    ctx.fillStyle = '#24364B';
+    ctx.fillRect(x, y + 24, width, 8);
+
+    // Three visible metal springs.
+    ctx.strokeStyle = '#A9BED0';
+    ctx.lineWidth = 3;
+
+    [0.2, 0.5, 0.8].forEach(position => {
+        const springX = x + width * position;
+
+        ctx.beginPath();
+        ctx.moveTo(springX, y + 7);
+        ctx.lineTo(springX - 6, y + 11);
+        ctx.lineTo(springX + 6, y + 15);
+        ctx.lineTo(springX - 6, y + 19);
+        ctx.lineTo(springX, y + 24);
+        ctx.stroke();
+    });
+
+    // Glowing launch plate: its top matches the collision surface.
+    ctx.shadowColor = '#00E5FF';
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = '#00B8D4';
+    ctx.fillRect(x, y, width, 7);
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#A7FFFF';
+    ctx.fillRect(x + 3, y, width - 6, 2);
+
+    // Upward chevrons communicate the launch direction.
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 2;
+
+    [0.3, 0.7].forEach(position => {
+        const arrowX = x + width * position;
+
+        ctx.beginPath();
+        ctx.moveTo(arrowX - 5, y - 3);
+        ctx.lineTo(arrowX, y - 8);
+        ctx.lineTo(arrowX + 5, y - 3);
+        ctx.stroke();
+    });
+
+    ctx.restore();
+}
+
 function drawPlatforms() {
     platforms.forEach(platform => {
         ctx.save();
         
-        // if (platform.type === PLATFORM_TYPES.ROTATING) {
-        //     ctx.translate(platform.x + platform.width / 2, platform.y + platform.height / 2);
-        //     ctx.rotate(platform.angle);
-        //     ctx.translate(-(platform.x + platform.width / 2), -(platform.y + platform.height / 2));
-        // }
+        
 
         if (platform.type === PLATFORM_TYPES.OSCILLATING) {
             ctx.translate(platform.x + platform.width / 2, platform.y + platform.height / 2);
@@ -798,14 +922,36 @@ function drawPlatforms() {
         }
         
         // Set different colors for different platform types
-        if (platform.type === PLATFORM_TYPES.FALLING) {
+        if (platform.type === PLATFORM_TYPES.BOOST) {
+            ctx.fillStyle = '#00E5FF'; // Cyan jump pad
+        } else if (platform.type === PLATFORM_TYPES.FALLING) {
             ctx.fillStyle = '#FF6347'; // Tomato color for falling platforms
         } else if (platform.type === PLATFORM_TYPES.OSCILLATING) {
             ctx.fillStyle = '#FFD700'; // Golden color for oscillating platforms
         } else {
             ctx.fillStyle = platform.id === PRACTICE_COURSE.length - 1 ? '#2E8B57' : '#8B4513'; // Green marks the finish
         }
-        ctx.fillRect(platform.x, platform.y - cameraOffset, platform.width, platform.height);
+
+        if (platform.type === PLATFORM_TYPES.BOOST) {
+            drawBoostPlatform(platform);
+        } else {
+            ctx.fillRect(
+                platform.x,
+                platform.y - cameraOffset,
+                platform.width,
+                platform.height
+            );
+}
+        if (platform.type === PLATFORM_TYPES.BOOST) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(
+                'BOOST',
+                platform.x + platform.width / 2,
+                platform.y - cameraOffset - 12
+        );
+}
         if (platform.id === PRACTICE_COURSE.length - 1) {
             ctx.fillStyle = '#FFFFFF';
             ctx.font = 'bold 20px Arial';
@@ -843,6 +989,11 @@ function loadPracticeCourse() {
             platform.angle = 0;
             platform.rotationSpeed = 0.02;
             platform.oscillationRange = 40;
+        }
+        // Platform 15 is our first test jump pad.
+        if (index === 14) {
+            platform.type = PLATFORM_TYPES.BOOST;
+            platform.boostPower = -20;
         }
         platforms.push(platform);
 
@@ -973,6 +1124,15 @@ function checkPlatformCollision() {
             player.dy = 0;
             player.isJumping = false;
 
+
+            // Apply the boost after the normal landing resets.
+            if (platform.type === PLATFORM_TYPES.BOOST) {
+                player.dy = platform.boostPower;
+                player.isJumping = true;
+                player.jumpCount = 0;
+                player.standingPlatform = null;
+            }
+
             // Increment platformsCleared
             if (!platformsLanded.has(index)) {
                 platformsCleared++;
@@ -1023,17 +1183,11 @@ function checkPlatformCollision() {
 
 // Update fadeOpacity for smooth transition
 function updateBackgroundStage() {
-    if (platformsCleared < 20 && backgroundStage !== 0 && !transitioning) {
-        startTransition(0);
-    } else if (platformsCleared >= 20 && platformsCleared < 40 && backgroundStage !== 1 && !transitioning) {
-        startTransition(1);
-    } else if (platformsCleared >= 40 && backgroundStage !== 2 && !transitioning) {
-        startTransition(2);
-    }
-
     if (platformsLanded.has(PRACTICE_COURSE.length - 1)) {
         gameOver = true;
-        showGameOverDialog("You reached the spaceship! Ready for takeoff!");
+        showGameOverDialog(
+            "You reached the spaceship! Ready for takeoff!"
+        );
     }
 }
 
@@ -1145,7 +1299,7 @@ function gameLoop() {
     drawPlayer();
     drawPlatformCounter();
     drawScore();
-    drawClouds();
+    
 
     if (!gameOver) {
         requestAnimationFrame(gameLoop);
@@ -1180,6 +1334,7 @@ document.addEventListener('keyup', handleKeyUp);
 
 initializeGroundTexture(); // Create ground details once.
 initializeTrees(); // Initialize scenery once.
+initializeStars(); // Create star positions once.
 resetGame(); // Load the fixed course before the first frame.
 gameLoop();
 
